@@ -29,7 +29,7 @@ Thumbs.db
 # Models
 *.bin
 *.gguf
-models/
+# models/
 
 # Logs
 *.log
