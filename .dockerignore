@@ -1,0 +1,41 @@
+# Build context bloat: keep the image small and the layer cache stable.
+# Anything that changes often (or is huge) MUST be excluded, otherwise Docker
+# invalidates cached layers and re-runs pip install on every build.
+
+# AI / backend weights and caches (mounted as volumes at runtime, never needed to build)
+models/
+
+# Tooling / scratch dirs that duplicate the repo and change constantly
+.kilo/
+.kilo-workspace/
+
+# Frontend dependencies (reinstalled inside the frontend build stage)
+frontend/node_modules/
+frontend/.next/
+frontend/build/
+frontend/dist/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+venv/
+.venv/
+
+# VCS / CI / editor
+.git/
+.github/
+.vscode/
+.idea/
+
+# Secrets / local env (never bake into an image)
+.env
+.env.*
+!.env.example
+
+# Logs / misc
+*.log
+.DS_Store

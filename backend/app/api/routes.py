@@ -32,9 +32,15 @@ async def websocket_stream(websocket: WebSocket):
                     data,
                     target_langs=["vi", "en", "ja", "zh"]
                 )
-                await websocket.send_json(result)
+                try:
+                    await websocket.send_json(result)
+                except RuntimeError:
+                    pass
             except Exception:
-                await websocket.send_json({"segments": [], "status": "error"})
+                try:
+                    await websocket.send_json({"segments": [], "status": "error"})
+                except RuntimeError:
+                    pass
     except WebSocketDisconnect:
         return
     except Exception:
@@ -65,21 +71,25 @@ async def websocket_multi_lang(websocket: WebSocket):
                     sample_rate=sample_rate,
                     chunk_id=data.get("chunk_id")
                 )
-                # Debug: see if STT produced any segments
                 segments = (result.get("segments") or []) if isinstance(result, dict) else []
                 first_text = None
                 if segments and isinstance(segments, list):
-                    # meeting_pipeline returns segments like {speaker,text,translation,...}
                     first_text = segments[0].get("text") if isinstance(segments[0], dict) else None
                 import logging
                 logger = logging.getLogger(__name__)
                 logger.info("[ws/multi-lang] segments_len=%s first_text=%r", len(segments), first_text)
-                await websocket.send_json(result)
+                try:
+                    await websocket.send_json(result)
+                except RuntimeError:
+                    pass
             except Exception as e:
-                await websocket.send_json({
-                    "error": str(e),
-                    "status": "error"
-                })
+                try:
+                    await websocket.send_json({
+                        "error": str(e),
+                        "status": "error"
+                    })
+                except RuntimeError:
+                    pass
     except WebSocketDisconnect:
         pass
 

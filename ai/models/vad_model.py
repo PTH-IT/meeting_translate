@@ -1,9 +1,17 @@
 """Voice Activity Detection model wrapper."""
 import logging
-import numpy as np
-import torch
-from typing import Tuple
 import os
+from typing import Tuple
+
+try:
+    import numpy as np
+except ModuleNotFoundError:  # pragma: no cover - exercised in lightweight environments
+    np = None
+
+try:
+    import torch
+except ModuleNotFoundError:  # pragma: no cover - exercised in lightweight environments
+    torch = None
 
 
 logger = logging.getLogger(__name__)
@@ -22,6 +30,10 @@ class VADModel:
         
     def load_model(self):
         if self.model is None and not self.mock_mode:
+            if torch is None:
+                logger.warning("Torch is unavailable; falling back to mock VAD")
+                self.mock_mode = True
+                return
             try:
                 logger.info("VADModel loading silero-vad from torch hub")
                 loaded = torch.hub.load(
@@ -41,9 +53,14 @@ class VADModel:
             logger.debug("VADModel already loaded")
     
     
-    def _mock_speech_check(self, audio: np.ndarray) -> list:
-        max_amp = np.max(np.abs(audio))
-        if max_amp > 0.01 and len(audio) > 1000:
+    def _mock_speech_check(self, audio) -> list:
+        if np is not None:
+            max_amp = np.max(np.abs(audio))
+            if max_amp > 0.01 and len(audio) > 1000:
+                return [{"start": 0, "end": len(audio) / 16000}]
+            return []
+
+        if hasattr(audio, "__len__") and len(audio) > 1000:
             return [{"start": 0, "end": len(audio) / 16000}]
         return []
     
@@ -57,7 +74,7 @@ class VADModel:
         
         self.load_model()
         
-        if isinstance(audio, np.ndarray):
+        if torch is not None and np is not None and isinstance(audio, np.ndarray):
             audio_tensor = torch.from_numpy(audio).float()
         else:
             audio_tensor = audio

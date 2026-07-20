@@ -4,8 +4,16 @@ import asyncio
 import os
 from typing import Optional
 
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+try:
+    import torch
+except ModuleNotFoundError:  # pragma: no cover - exercised in lightweight environments
+    torch = None
+
+try:
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+except ModuleNotFoundError:  # pragma: no cover - exercised in lightweight environments
+    AutoModelForCausalLM = None
+    AutoTokenizer = None
 
 
 logger = logging.getLogger(__name__)
@@ -19,7 +27,7 @@ class TranslationModel:
 
     def __init__(self, model_name: str = "google/gemma-2b-it", device: str = "cuda"):
         self.model_name = model_name
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda" if torch is not None and getattr(torch, "cuda", None) is not None and torch.cuda.is_available() else "cpu"
         self.model = None
         self.tokenizer = None
         self.mock_mode = os.environ.get("MOCK_TRANSLATION", "false").lower() == "true"
@@ -30,6 +38,10 @@ class TranslationModel:
         logger.info("TranslationModel init: mock_mode=%s model_name=%s device=%s cache_dir=%s", self.mock_mode, self.model_name, self.device, self.cache_dir)
 
     def _load_model_sync(self):
+        if torch is None or AutoTokenizer is None or AutoModelForCausalLM is None:
+            self.mock_mode = True
+            return None, None
+
         logger.info("TranslationModel loading from_pretrained: %s cache_dir=%s device=%s", self.model_name, self.cache_dir, self.device)
         tokenizer = AutoTokenizer.from_pretrained(self.model_name, cache_dir=self.cache_dir)
         dtype = torch.float16 if self.device == "cuda" else torch.float32
@@ -99,6 +111,8 @@ class TranslationModel:
             return self._mock_translate(text, target_lang)
 
         await self.load_model()
+        if self.mock_mode or self.model is None or self.tokenizer is None:
+            return self._mock_translate(text, target_lang)
 
         prompt = self._build_prompt(text, target_lang)
 
@@ -132,7 +146,12 @@ class TranslationModel:
         return translation or self._mock_translate(text, target_lang)
 
     async def detect_language(self, text: str) -> str:
+        if self.mock_mode:
+            return "en"
+
         await self.load_model()
+        if self.mock_mode or self.model is None or self.tokenizer is None:
+            return "en"
 
         prompt = f"""
     Detect the language of the following text.

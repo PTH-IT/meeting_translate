@@ -13,14 +13,22 @@ interface MultiLangTranslations {
   [lang: string]: string
 }
 
+const sampleRate = 16000
+
+// send ~5s chunks for better Whisper transcription quality
+const bufferSeconds = 5
+const bufferSize = sampleRate * bufferSeconds
+
 function App() {
   const [isRecording, setIsRecording] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected')
   const [targetLanguages, setTargetLanguages] = useState<string[]>(['vi'])
+  const [captureMode, setCaptureMode] = useState<'mic' | 'system'>('mic')
   const [transcript, setTranscript] = useState<TranscriptSegment[]>([])
   const [translations, setTranslations] = useState<Record<number, MultiLangTranslations>>({})
   const [activeTab, setActiveTab] = useState<'sources' | 'translation'>('translation')
   const [debugLog, setDebugLog] = useState<string[]>([])
+  const [lastError, setLastError] = useState<string | null>(null)
 
   const websocketRef = useRef<WebSocket | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -30,6 +38,7 @@ function App() {
   const sendIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const chunkIdRef = useRef(0)
   const seenSegmentRef = useRef<Set<string>>(new Set())
+  const actualSampleRateRef = useRef<number>(sampleRate)
 
   const languageNames: Record<string, string> = {
     vi: 'Vietnamese',
@@ -38,12 +47,6 @@ function App() {
     zh: 'Chinese',
     ko: 'Korean'
   }
-
-const sampleRate = 16000
-
-// send ~5s chunks for better Whisper transcription quality
-const bufferSeconds = 5
-const bufferSize = sampleRate * bufferSeconds
 
   const encodeAudio = (audioData: Float32Array): string => {
     const buffer = new ArrayBuffer(audioData.length * 4)
@@ -91,7 +94,9 @@ const bufferSize = sampleRate * bufferSeconds
 
   const connectMultiLangWebSocket = () => {
     setConnectionStatus('connecting')
-    const wsUrl = 'ws://localhost:8000/api/ws/multi-lang'
+    setLastError(null)
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const wsUrl = `${wsProtocol}://${window.location.host}/api/ws/multi-lang`
     console.log('Connecting WebSocket to:', wsUrl)
     websocketRef.current = new WebSocket(wsUrl)
 
@@ -115,6 +120,7 @@ const bufferSize = sampleRate * bufferSeconds
 
       if (data.error) {
         console.error('Server error:', data.error)
+        setLastError(`Server error: ${data.error}`)
         return
       }
 
@@ -157,15 +163,52 @@ const bufferSize = sampleRate * bufferSeconds
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { sampleRate: sampleRate, channelCount: 1 }
-      })
+      let stream: MediaStream
+      if (captureMode === 'system') {
+        // Capture audio from a browser tab / entire system via screen sharing.
+        // This is required to pick up audio from YouTube, Zoom, Meet, etc.,
+        // since a microphone only hears sound picked up by the mic, not audio
+        // that is played out of the speakers. The user must select the tab and
+        // tick "Share tab audio" in the browser prompt.
+        stream = await (navigator.mediaDevices as any).getDisplayMedia({
+          video: true,
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+            sampleRate: sampleRate,
+            channelCount: 1
+          }
+        })
+        // We only need the audio track; drop the video track to avoid
+        // capturing a black frame and to release the shared surface.
+        stream.getVideoTracks().forEach(track => track.stop())
+        if (stream.getAudioTracks().length === 0) {
+          throw new Error('No audio track captured. Make sure to tick "Share tab audio" when selecting the tab.')
+        }
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { sampleRate: sampleRate, channelCount: 1 }
+        })
+      }
       streamRef.current = stream
+      // If the user stops sharing via the browser "Stop sharing" button, end recording.
+      stream.getAudioTracks().forEach(track => {
+        track.addEventListener('ended', () => {
+          if (isRecording) {
+            stopRecording()
+          }
+        })
+      })
       audioBufferRef.current = new Float32Array(0)
 
       audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({
         sampleRate: sampleRate
       })
+
+      const actualSampleRate = audioContextRef.current.sampleRate
+      actualSampleRateRef.current = actualSampleRate
+      const bufferSize = actualSampleRate * bufferSeconds
 
       const source = audioContextRef.current.createMediaStreamSource(stream)
       processorRef.current = audioContextRef.current.createScriptProcessor(4096, 1, 1)
@@ -186,7 +229,7 @@ const bufferSize = sampleRate * bufferSeconds
       connectMultiLangWebSocket()
 
       sendIntervalRef.current = setInterval(() => {
-        if (websocketRef.current?.readyState === WebSocket.OPEN && audioBufferRef.current.length > bufferSize) {
+        if (websocketRef.current?.readyState === WebSocket.OPEN && audioBufferRef.current.length >= bufferSize) {
           const bufferCopy = audioBufferRef.current.slice(0, bufferSize)
           audioBufferRef.current = audioBufferRef.current.slice(bufferSize)
           const base64Audio = encodeAudio(bufferCopy)
@@ -194,7 +237,7 @@ const bufferSize = sampleRate * bufferSeconds
           websocketRef.current?.send(JSON.stringify({
             audio: base64Audio,
             target_langs: targetLanguages,
-            sample_rate: sampleRate,
+            sample_rate: actualSampleRate,
             chunk_id: chunkId
           }))
         }
@@ -230,7 +273,7 @@ const bufferSize = sampleRate * bufferSeconds
       websocketRef.current?.send(JSON.stringify({
         audio: base64Audio,
         target_langs: targetLanguages,
-        sample_rate: sampleRate,
+        sample_rate: actualSampleRateRef.current,
         chunk_id: chunkId
       }))
       audioBufferRef.current = new Float32Array(0)
@@ -277,10 +320,34 @@ const bufferSize = sampleRate * bufferSeconds
               <span className={`status ${isRecording ? 'recording' : 'idle'}`}>
                 Status: {isRecording ? 'Recording' : 'Ready'}
               </span>
+              {lastError && <span className="status error">{lastError}</span>}
             </div>
 
+            <div className="capture-controls">
+              <span>Audio source:</span>
+              <label>
+                <input
+                  type="radio"
+                  name="captureMode"
+                  checked={captureMode === 'mic'}
+                  onChange={() => setCaptureMode('mic')}
+                  disabled={isRecording}
+                />
+                Microphone
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="captureMode"
+                  checked={captureMode === 'system'}
+                  onChange={() => setCaptureMode('system')}
+                  disabled={isRecording}
+                />
+                System / Tab audio
+              </label>
+            </div>
             <div className="language-controls">
-{Object.entries(languageNames).map(([code, name]: [string, string]) => (
+ {Object.entries(languageNames).map(([code, name]: [string, string]) => (
                 <label key={code}>
                   <input
                     type="checkbox"
