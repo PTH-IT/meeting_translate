@@ -43,7 +43,7 @@ services:
       - TRANSFORMERS_CACHE=/app/models/huggingface/transformers
       - TORCH_HOME=/app/models/torch
       - WHISPER_CACHE_DIR=/app/models/whisperx
-      - WHISPER_MODEL=tiny
+      - WHISPER_MODEL=small
       - MOCK_TRANSLATION=false
       - MOCK_TRANSCRIPTION=false
       - MOCK_DIARIZATION=false
