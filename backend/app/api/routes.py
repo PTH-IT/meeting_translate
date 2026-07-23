@@ -1,5 +1,5 @@
 """API routes for meeting translator."""
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, UploadFile, File, Form, BackgroundTasks, Body
 from fastapi.responses import JSONResponse
 import asyncio
 import base64
@@ -112,6 +112,21 @@ async def translate_file(
     )
     
     return {"status": "processing", "filename": file.filename, "target_languages": target_lang_list}
+
+
+@router.post("/translate-text")
+async def translate_text_endpoint(
+    text: str = Body(..., embed=True),
+    target_lang: str = Body("vi", embed=True),
+    source_lang: str = Body(None, embed=True)
+):
+    """Direct text translation."""
+    client = get_ai_client()
+    try:
+        translated = await client.translate(text=text, target_lang=target_lang, source_lang=source_lang)
+        return {"translated_text": translated, "target_lang": target_lang, "source_lang": source_lang or "auto"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 async def process_uploaded_file(content: bytes, filename: str, target_languages: list):
