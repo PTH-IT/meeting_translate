@@ -2,13 +2,15 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --upgrade pip
 COPY backend/requirements.txt .
-RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip \
+    && pip install --prefer-binary -r requirements.txt
+
 COPY backend/app/ ./app/
 COPY backend/config.py .
 COPY backend/entrypoint.py .

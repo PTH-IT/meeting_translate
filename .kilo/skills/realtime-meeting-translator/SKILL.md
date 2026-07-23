@@ -581,3 +581,21 @@ When implementing new features:
 If project context is insufficient, ask for the required files instead of making assumptions.
 
 Always prioritize correctness, maintainability, scalability, and low latency over short or simplified solutions.
+
+## Frontend Architecture
+
+### State Management
+* Use Redux Toolkit for global state.
+* Use Redux Saga for side effects.
+* Never replace a user-facing action with a pure state toggle unless the side effect is wired elsewhere.
+
+### Reusable Hooks
+* `useRecordingEngine` in `frontend/src/hooks/useRecordingEngine.ts` owns the WebSocket connection, audio capture, and chunk sending.
+* `ControlButtons` must call `useRecordingEngine().start()` / `.stop()`, not just dispatch `startRecording()` / `stopRecording()`.
+* Never put raw `new WebSocket(...)` or `AudioContext` logic directly in `App.tsx`.
+
+### Component Layout
+* `App.tsx` is the Provider wrapper and tab layout only.
+* `TranslationView` composes: `StatusBar`, `CaptureControls`, `LanguageControls`, `TranscriptPanel`, `ControlButtons`.
+* `MeetingSources` owns source detection and selection.
+* `ControlButtons` renders Start/Stop and Clear.

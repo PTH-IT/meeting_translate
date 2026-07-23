@@ -14,7 +14,8 @@ class AIClient:
     
     def __init__(self, base_url: str = None):
         self.base_url = base_url or os.environ.get("AI_SERVICE_URL", "http://ai:8000")
-        self.timeout = httpx.Timeout(30.0)
+        timeout_seconds = float(os.environ.get("AI_CLIENT_TIMEOUT", "15.0"))
+        self.timeout = httpx.Timeout(timeout_seconds)
     
     async def translate(self, text: str, target_lang: str = "vi", source_lang: Optional[str] = None) -> str:
         logger.info("Backend calling AI /translate: text=%r target_lang=%s source_lang=%s", text, target_lang, source_lang or "auto")
@@ -67,13 +68,6 @@ class AIClient:
             data = resp.json()
             logger.info("AI /process-audio response status=%s segments=%d translations_keys=%s", data.get("status"), len(data.get("segments", [])), list(data.get("translations", {}).keys()))
             return data
-    
-    async def health(self) -> Dict:
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.get(f"{self.base_url}/health")
-            resp.raise_for_status()
-            return resp.json()
-
     
     async def health(self) -> Dict:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
